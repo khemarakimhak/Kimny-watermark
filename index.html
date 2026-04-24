@@ -1,0 +1,207 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>KN Cataloger Pro</title>
+    <style>
+        @font-face { font-family: 'MoglanDemo'; src: url('MOGLAN_DEMO.woff2') format('woff2'); }
+        body { background-color: #ffe7e5; font-family: 'Segoe UI', sans-serif; padding: 15px; display: flex; flex-direction: column; align-items: center; margin: 0; }
+        
+        .controls { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; width: 100%; max-width: 500px; margin-bottom: 15px; }
+        
+        .btn-brand, label.upload-label, .id-tag, .clear-btn { 
+            background: #9168ad; color: white; border: none; padding: 12px; 
+            border-radius: 8px; cursor: pointer; font-weight: bold; text-align: center;
+        }
+
+        .id-input-group { grid-column: span 2; display: flex; border: 2px solid #9168ad; border-radius: 10px; overflow: hidden; background: white; height: 45px;}
+        input[type="text"] { flex-grow: 1; border: none; padding: 0 10px; outline: none; font-size: 16px; }
+        
+        /* Zoom Slider Styling */
+        .zoom-control { grid-column: span 2; display: flex; align-items: center; gap: 10px; background: white; padding: 10px; border-radius: 8px; border: 1px solid #9168ad; }
+        .zoom-control input { flex-grow: 1; accent-color: #9168ad; }
+
+        .watermark-selector { grid-column: span 2; display: flex; justify-content: space-around; background: white; padding: 10px; border-radius: 8px; border: 1px solid #9168ad; color: #9168ad; font-weight: bold; }
+
+        #preview-container { 
+            width: 100%; max-width: 500px; aspect-ratio: 1 / 1; 
+            border: 2px solid #9168ad; background: #eee; position: relative;
+            touch-action: none; /* Prevents scrolling while panning */
+            overflow: hidden; cursor: move;
+        }
+        canvas { width: 100%; height: 100%; display: block; }
+    </style>
+</head>
+<body>
+
+    <div class="controls">
+        <label for="upload" class="upload-label">insert photo here</label>
+        <input type="file" id="upload" hidden accept="image/*">
+        <button id="download" class="btn-brand">Download photo</button>
+
+        <div class="id-input-group">
+            <div class="id-tag">Photo ID</div>
+            <input type="text" id="photoId" placeholder="Type number...">
+            <button id="clearId" class="clear-btn">✕</button>
+        </div>
+
+        <div class="zoom-control">
+            <span style="color:#9168ad; font-weight:bold;">Zoom</span>
+            <input type="range" id="zoomRange" min="0.1" max="3" step="0.01" value="1">
+        </div>
+
+        <div class="watermark-selector">
+            <label><input type="radio" name="wm" value="white" checked> White Logo</label>
+            <label><input type="radio" name="wm" value="purple"> Purple Logo</label>
+        </div>
+    </div>
+
+    <div id="preview-container">
+        <canvas id="canvas"></canvas>
+    </div>
+
+    <script>
+        const canvas = document.getElementById('canvas');
+        const ctx = canvas.getContext('2d');
+        const upload = document.getElementById('upload');
+        const photoId = document.getElementById('photoId');
+        const zoomRange = document.getElementById('zoomRange');
+        const clearBtn = document.getElementById('clearId');
+        const downloadBtn = document.getElementById('download');
+        const wmRadios = document.getElementsByName('wm');
+
+        let baseImage = null;
+        let imgX = 0, imgY = 0, imgScale = 1;
+        let isDragging = false;
+        let startX, startY;
+
+        const watermarks = { white: new Image(), purple: new Image() };
+        watermarks.white.src = 'white.png';
+        watermarks.purple.src = 'purple.png';
+
+        const savedID = localStorage.getItem('lastKN_ID');
+        if (savedID) photoId.placeholder = "Last: " + savedID;
+
+        function draw() {
+            const size = 1080; // Standard high-res square
+            canvas.width = size; canvas.height = size;
+            ctx.clearRect(0, 0, size, size);
+            ctx.fillStyle = "white";
+            ctx.fillRect(0, 0, size, size);
+
+            if (baseImage) {
+                // Draw the photo with current Pan and Zoom
+                const drawW = baseImage.width * imgScale;
+                const drawH = baseImage.height * imgScale;
+                ctx.drawImage(baseImage, imgX, imgY, drawW, drawH);
+            }
+
+            // Draw Watermark (Always fixed on top)
+            const selectedWM = document.querySelector('input[name="wm"]:checked').value;
+            const wmImg = watermarks[selectedWM];
+            if (wmImg.complete && wmImg.naturalWidth !== 0) {
+                ctx.drawImage(wmImg, 0, 0, size, size);
+            }
+
+            // Draw ID Badge
+            const rawText = photoId.value.trim();
+            if (rawText) {
+                const fullText = "KN" + rawText;
+                ctx.font = `bold ${size * 0.05}px "MoglanDemo"`;
+                const textWidth = ctx.measureText(fullText).width;
+                const p = size * 0.02;
+                const rectW = textWidth + (p * 2), rectH = size * 0.07;
+                ctx.fillStyle = "#9168ad";
+                ctx.beginPath();
+                ctx.roundRect(size * 0.03, size * 0.03, rectW, rectH, size * 0.015);
+                ctx.fill();
+                ctx.fillStyle = "white";
+                ctx.textBaseline = "middle";
+                ctx.fillText(fullText, (size * 0.03) + p, (size * 0.03) + (rectH / 2.1));
+            }
+        }
+
+        // --- Touch & Pan Logic ---
+        const container = document.getElementById('preview-container');
+
+        const startPan = (e) => {
+            isDragging = true;
+            const event = e.touches ? e.touches[0] : e;
+            startX = event.clientX - imgX;
+            startY = event.clientY - imgY;
+        };
+
+        const movePan = (e) => {
+            if (!isDragging) return;
+            const event = e.touches ? e.touches[0] : e;
+            imgX = event.clientX - startX;
+            imgY = event.clientY - startY;
+            draw();
+        };
+
+        const endPan = () => isDragging = false;
+
+        container.addEventListener('mousedown', startPan);
+        window.addEventListener('mousemove', movePan);
+        window.addEventListener('mouseup', endPan);
+        container.addEventListener('touchstart', startPan);
+        container.addEventListener('touchmove', movePan);
+        container.addEventListener('touchend', endPan);
+
+        zoomRange.addEventListener('input', (e) => {
+            imgScale = e.target.value;
+            draw();
+        });
+
+        // --- Standard Listeners ---
+        upload.addEventListener('change', (e) => {
+            const reader = new FileReader();
+            reader.onload = (f) => {
+                const img = new Image();
+                img.onload = () => { 
+                    baseImage = img; 
+                    // Auto-scale to fit square initially
+                    imgScale = 1080 / Math.max(img.width, img.height);
+                    zoomRange.value = imgScale;
+                    imgX = (1080 - img.width * imgScale) / 2;
+                    imgY = (1080 - img.height * imgScale) / 2;
+                    draw(); 
+                };
+                img.src = f.target.result;
+            };
+            reader.readAsDataURL(e.target.files[0]);
+        });
+
+        clearBtn.addEventListener('click', () => {
+            if (photoId.value) {
+                localStorage.setItem('lastKN_ID', photoId.value);
+                photoId.placeholder = "Last: " + photoId.value;
+                photoId.value = ""; draw();
+            }
+        });
+
+        downloadBtn.addEventListener('click', () => {
+            if(!baseImage) return;
+            const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent);
+            const data = canvas.toDataURL('image/png');
+            if(isIOS) {
+                // Show long-press overlay code (same as previous response)
+                const overlay = document.createElement('div');
+                overlay.style.cssText = "position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.9);z-index:2000;display:flex;flex-direction:column;align-items:center;justify-content:center;";
+                overlay.innerHTML = `<p style="color:white">Long press to Save</p><img src="${data}" style="max-width:90%; border:2px solid white;"><button onclick="this.parentElement.remove()" style="margin-top:20px; padding:10px 20px; background:#9168ad; color:white; border:none; border-radius:8px;">Close</button>`;
+                document.body.appendChild(overlay);
+            } else {
+                const link = document.createElement('a');
+                link.download = `KN${photoId.value || 'Product'}.png`;
+                link.href = data; link.click();
+            }
+        });
+
+        photoId.addEventListener('input', draw);
+        wmRadios.forEach(r => r.addEventListener('change', draw));
+        watermarks.white.onload = draw; watermarks.purple.onload = draw;
+        document.fonts.load('10pt "MoglanDemo"').then(draw);
+    </script>
+</body>
+</html>
