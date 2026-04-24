@@ -3,13 +3,24 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>KN Cataloger Pro</title>
+    <title>KN Cataloger Elite</title>
+    
+    <link rel="icon" type="image/png" href="favicon.png">
+    <link rel="apple-touch-icon" href="apple-touch-icon.png">
+    <link rel="manifest" href="site.webmanifest">
+
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-title" content="KN Cataloger">
+
     <style>
         @font-face { font-family: 'MoglanDemo'; src: url('MOGLAN_DEMO.woff2') format('woff2'); }
-        body { background-color: #ffe7e5; font-family: 'Segoe UI', sans-serif; padding: 15px; display: flex; flex-direction: column; align-items: center; margin: 0; }
+        /* Use the requested background color and branding */
+        body { background-color: #ffe7e5; font-family: 'Segoe UI', sans-serif; padding: 15px; display: flex; flex-direction: column; align-items: center; margin: 0; overflow-x: hidden; }
         
         .controls { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; width: 100%; max-width: 500px; margin-bottom: 15px; }
         
+        /* Consistent branding: #9168ad with white text */
         .btn-brand, label.upload-label, .id-tag, .clear-btn { 
             background: #9168ad; color: white; border: none; padding: 12px; 
             border-radius: 8px; cursor: pointer; font-weight: bold; text-align: center;
@@ -17,18 +28,14 @@
 
         .id-input-group { grid-column: span 2; display: flex; border: 2px solid #9168ad; border-radius: 10px; overflow: hidden; background: white; height: 45px;}
         input[type="text"] { flex-grow: 1; border: none; padding: 0 10px; outline: none; font-size: 16px; }
-        
-        /* Zoom Slider Styling */
-        .zoom-control { grid-column: span 2; display: flex; align-items: center; gap: 10px; background: white; padding: 10px; border-radius: 8px; border: 1px solid #9168ad; }
-        .zoom-control input { flex-grow: 1; accent-color: #9168ad; }
 
         .watermark-selector { grid-column: span 2; display: flex; justify-content: space-around; background: white; padding: 10px; border-radius: 8px; border: 1px solid #9168ad; color: #9168ad; font-weight: bold; }
 
         #preview-container { 
             width: 100%; max-width: 500px; aspect-ratio: 1 / 1; 
-            border: 2px solid #9168ad; background: #eee; position: relative;
-            touch-action: none; /* Prevents scrolling while panning */
-            overflow: hidden; cursor: move;
+            border: 2px solid #9168ad; background: #fff; position: relative;
+            touch-action: none; overflow: hidden; cursor: grab;
+            box-shadow: 0 10px 20px rgba(145, 104, 173, 0.2);
         }
         canvas { width: 100%; height: 100%; display: block; }
     </style>
@@ -46,11 +53,6 @@
             <button id="clearId" class="clear-btn">✕</button>
         </div>
 
-        <div class="zoom-control">
-            <span style="color:#9168ad; font-weight:bold;">Zoom</span>
-            <input type="range" id="zoomRange" min="0.1" max="3" step="0.01" value="1">
-        </div>
-
         <div class="watermark-selector">
             <label><input type="radio" name="wm" value="white" checked> White Logo</label>
             <label><input type="radio" name="wm" value="purple"> Purple Logo</label>
@@ -60,21 +62,21 @@
     <div id="preview-container">
         <canvas id="canvas"></canvas>
     </div>
+    <div class="hint">Pinch to zoom • Drag to pan • Scroll to zoom</div>
 
     <script>
         const canvas = document.getElementById('canvas');
         const ctx = canvas.getContext('2d');
+        const container = document.getElementById('preview-container');
         const upload = document.getElementById('upload');
         const photoId = document.getElementById('photoId');
-        const zoomRange = document.getElementById('zoomRange');
         const clearBtn = document.getElementById('clearId');
         const downloadBtn = document.getElementById('download');
-        const wmRadios = document.getElementsByName('wm');
 
         let baseImage = null;
         let imgX = 0, imgY = 0, imgScale = 1;
         let isDragging = false;
-        let startX, startY;
+        let lastX, lastY, lastDist = 0;
 
         const watermarks = { white: new Image(), purple: new Image() };
         watermarks.white.src = 'white.png';
@@ -84,34 +86,26 @@
         if (savedID) photoId.placeholder = "Last: " + savedID;
 
         function draw() {
-            const size = 1080; // Standard high-res square
+            const size = 1200; // High resolution square
             canvas.width = size; canvas.height = size;
-            ctx.clearRect(0, 0, size, size);
             ctx.fillStyle = "white";
             ctx.fillRect(0, 0, size, size);
 
             if (baseImage) {
-                // Draw the photo with current Pan and Zoom
-                const drawW = baseImage.width * imgScale;
-                const drawH = baseImage.height * imgScale;
-                ctx.drawImage(baseImage, imgX, imgY, drawW, drawH);
+                ctx.drawImage(baseImage, imgX, imgY, baseImage.width * imgScale, baseImage.height * imgScale);
             }
 
-            // Draw Watermark (Always fixed on top)
+            // Draw Fixed UI Elements (Watermark & ID)
             const selectedWM = document.querySelector('input[name="wm"]:checked').value;
             const wmImg = watermarks[selectedWM];
-            if (wmImg.complete && wmImg.naturalWidth !== 0) {
-                ctx.drawImage(wmImg, 0, 0, size, size);
-            }
+            if (wmImg.complete) ctx.drawImage(wmImg, 0, 0, size, size);
 
-            // Draw ID Badge
             const rawText = photoId.value.trim();
             if (rawText) {
                 const fullText = "KN" + rawText;
                 ctx.font = `bold ${size * 0.05}px "MoglanDemo"`;
                 const textWidth = ctx.measureText(fullText).width;
-                const p = size * 0.02;
-                const rectW = textWidth + (p * 2), rectH = size * 0.07;
+                const p = size * 0.02, rectW = textWidth + (p * 2), rectH = size * 0.07;
                 ctx.fillStyle = "#9168ad";
                 ctx.beginPath();
                 ctx.roundRect(size * 0.03, size * 0.03, rectW, rectH, size * 0.015);
@@ -122,50 +116,86 @@
             }
         }
 
-        // --- Touch & Pan Logic ---
-        const container = document.getElementById('preview-container');
+        // --- Fluid Interaction Logic ---
 
-        const startPan = (e) => {
-            isDragging = true;
-            const event = e.touches ? e.touches[0] : e;
-            startX = event.clientX - imgX;
-            startY = event.clientY - imgY;
-        };
+        // Wheel Zoom (PC)
+        container.addEventListener('wheel', (e) => {
+            e.preventDefault();
+            const zoomSpeed = 0.001;
+            const delta = -e.deltaY;
+            const factor = Math.pow(1.1, delta / 100);
+            
+            // Zoom towards mouse position
+            const rect = container.getBoundingClientRect();
+            const mouseX = (e.clientX - rect.left) * (canvas.width / rect.width);
+            const mouseY = (e.clientY - rect.top) * (canvas.height / rect.height);
 
-        const movePan = (e) => {
-            if (!isDragging) return;
-            const event = e.touches ? e.touches[0] : e;
-            imgX = event.clientX - startX;
-            imgY = event.clientY - startY;
+            imgX = mouseX - (mouseX - imgX) * factor;
+            imgY = mouseY - (mouseY - imgY) * factor;
+            imgScale *= factor;
             draw();
-        };
+        }, { passive: false });
 
-        const endPan = () => isDragging = false;
+        // Touch & Mouse Pan/Pinch
+        container.addEventListener('pointerdown', (e) => {
+            isDragging = true;
+            lastX = e.clientX;
+            lastY = e.clientY;
+            container.setPointerCapture(e.pointerId);
+        });
 
-        container.addEventListener('mousedown', startPan);
-        window.addEventListener('mousemove', movePan);
-        window.addEventListener('mouseup', endPan);
-        container.addEventListener('touchstart', startPan);
-        container.addEventListener('touchmove', movePan);
-        container.addEventListener('touchend', endPan);
+        const activePointers = new Map();
 
-        zoomRange.addEventListener('input', (e) => {
-            imgScale = e.target.value;
+        container.addEventListener('pointermove', (e) => {
+            activePointers.set(e.pointerId, e);
+            
+            if (activePointers.size === 2) {
+                // Pinch to Zoom
+                const pts = Array.from(activePointers.values());
+                const dist = Math.hypot(pts[0].clientX - pts[1].clientX, pts[0].clientY - pts[1].clientY);
+                
+                if (lastDist > 0) {
+                    const factor = dist / lastDist;
+                    imgScale *= factor;
+                    // Keep center relative
+                    const midX = (pts[0].clientX + pts[1].clientX) / 2;
+                    const midY = (pts[0].clientY + pts[1].clientY) / 2;
+                    const rect = container.getBoundingClientRect();
+                    const canvasMidX = (midX - rect.left) * (canvas.width / rect.width);
+                    const canvasMidY = (midY - rect.top) * (canvas.height / rect.height);
+                    
+                    imgX = canvasMidX - (canvasMidX - imgX) * factor;
+                    imgY = canvasMidY - (canvasMidY - imgY) * factor;
+                }
+                lastDist = dist;
+            } else if (isDragging && activePointers.size === 1) {
+                // Pan
+                const deltaX = (e.clientX - lastX) * (canvas.width / container.clientWidth);
+                const deltaY = (e.clientY - lastY) * (canvas.height / container.clientHeight);
+                imgX += deltaX;
+                imgY += deltaY;
+                lastX = e.clientX;
+                lastY = e.clientY;
+            }
             draw();
         });
 
-        // --- Standard Listeners ---
+        container.addEventListener('pointerup', (e) => {
+            activePointers.delete(e.pointerId);
+            if (activePointers.size < 2) lastDist = 0;
+            if (activePointers.size === 0) isDragging = false;
+        });
+
+        // --- Standard Logic ---
         upload.addEventListener('change', (e) => {
             const reader = new FileReader();
             reader.onload = (f) => {
                 const img = new Image();
                 img.onload = () => { 
                     baseImage = img; 
-                    // Auto-scale to fit square initially
-                    imgScale = 1080 / Math.max(img.width, img.height);
-                    zoomRange.value = imgScale;
-                    imgX = (1080 - img.width * imgScale) / 2;
-                    imgY = (1080 - img.height * imgScale) / 2;
+                    imgScale = 1200 / Math.max(img.width, img.height);
+                    imgX = (1200 - img.width * imgScale) / 2;
+                    imgY = (1200 - img.height * imgScale) / 2;
                     draw(); 
                 };
                 img.src = f.target.result;
@@ -183,23 +213,21 @@
 
         downloadBtn.addEventListener('click', () => {
             if(!baseImage) return;
-            const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent);
             const data = canvas.toDataURL('image/png');
-            if(isIOS) {
-                // Show long-press overlay code (same as previous response)
+            if(/iPhone|iPad|iPod/.test(navigator.userAgent)) {
                 const overlay = document.createElement('div');
-                overlay.style.cssText = "position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.9);z-index:2000;display:flex;flex-direction:column;align-items:center;justify-content:center;";
-                overlay.innerHTML = `<p style="color:white">Long press to Save</p><img src="${data}" style="max-width:90%; border:2px solid white;"><button onclick="this.parentElement.remove()" style="margin-top:20px; padding:10px 20px; background:#9168ad; color:white; border:none; border-radius:8px;">Close</button>`;
+                overlay.style.cssText = "position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.9);z-index:2000;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:20px;";
+                overlay.innerHTML = `<p style="color:white; font-weight:bold;">Long press to Save to Photos</p><img src="${data}" style="max-width:100%; border:2px solid white;"><button onclick="this.parentElement.remove()" class="btn-brand" style="margin-top:20px;">Close</button>`;
                 document.body.appendChild(overlay);
             } else {
                 const link = document.createElement('a');
-                link.download = `KN${photoId.value || 'Product'}.png`;
+                link.download = `KN${photoId.value || 'Export'}.png`;
                 link.href = data; link.click();
             }
         });
 
         photoId.addEventListener('input', draw);
-        wmRadios.forEach(r => r.addEventListener('change', draw));
+        document.getElementsByName('wm').forEach(r => r.addEventListener('change', draw));
         watermarks.white.onload = draw; watermarks.purple.onload = draw;
         document.fonts.load('10pt "MoglanDemo"').then(draw);
     </script>
