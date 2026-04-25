@@ -8,34 +8,52 @@
     <link rel="icon" type="image/png" href="favicon.png">
     <link rel="apple-touch-icon" href="apple-touch-icon.png">
     <link rel="manifest" href="site.webmanifest">
-
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-    <meta name="apple-mobile-web-app-title" content="KN Cataloger">
 
     <style>
-        @font-face { font-family: 'MoglanDemo'; src: url('MOGLAN_DEMO.woff2') format('woff2'); }
-        /* Use the requested background color and branding */
-        body { background-color: #ffe7e5; font-family: 'Segoe UI', sans-serif; padding: 15px; display: flex; flex-direction: column; align-items: center; margin: 0; overflow-x: hidden; }
+        @font-face { 
+            font-family: 'SFProMedium'; 
+            src: url('SFPRODISPLAYMEDIUM.woff2') format('woff2'); 
+        }
+
+        body { background-color: #ffe7e5; font-family: 'Segoe UI', sans-serif; padding: 15px; display: flex; flex-direction: column; align-items: center; margin: 0; }
         
-        .controls { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; width: 100%; max-width: 500px; margin-bottom: 15px; }
+        .controls { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; width: 100%; max-width: 500px; margin-bottom: 12px; }
         
-        /* Consistent branding: #9168ad with white text */
         .btn-brand, label.upload-label, .id-tag, .clear-btn { 
-            background: #9168ad; color: white; border: none; padding: 12px; 
+            background: #9168ad; color: white; border: none; padding: 10px; 
             border-radius: 8px; cursor: pointer; font-weight: bold; text-align: center;
         }
 
-        .id-input-group { grid-column: span 2; display: flex; border: 2px solid #9168ad; border-radius: 10px; overflow: hidden; background: white; height: 45px;}
+        .id-input-group { grid-column: span 2; display: flex; border: 2px solid #9168ad; border-radius: 10px; overflow: hidden; background: white; height: 40px;}
         input[type="text"] { flex-grow: 1; border: none; padding: 0 10px; outline: none; font-size: 16px; }
 
-        .watermark-selector { grid-column: span 2; display: flex; justify-content: space-around; background: white; padding: 10px; border-radius: 8px; border: 1px solid #9168ad; color: #9168ad; font-weight: bold; }
+        .selection-container { 
+            grid-column: span 2; 
+            display: flex; 
+            flex-wrap: wrap; 
+            gap: 8px; 
+            background: white; 
+            padding: 10px; 
+            border-radius: 10px; 
+            border: 2px solid #9168ad; 
+            color: #9168ad; 
+            font-weight: bold;
+        }
+        
+        .selection-container label { 
+            display: flex; 
+            align-items: center; 
+            gap: 5px; 
+            cursor: pointer;
+            font-size: 13px;
+        }
 
         #preview-container { 
             width: 100%; max-width: 500px; aspect-ratio: 1 / 1; 
             border: 2px solid #9168ad; background: #fff; position: relative;
             touch-action: none; overflow: hidden; cursor: grab;
-            box-shadow: 0 10px 20px rgba(145, 104, 173, 0.2);
         }
         canvas { width: 100%; height: 100%; display: block; }
     </style>
@@ -53,7 +71,17 @@
             <button id="clearId" class="clear-btn">✕</button>
         </div>
 
-        <div class="watermark-selector">
+        <div class="selection-container">
+            <label><input type="radio" name="cat" value="" checked> None</label>
+            <label><input type="radio" name="cat" value="Earring"> Earring</label>
+            <label><input type="radio" name="cat" value="Necklace"> Necklace</label>
+            <label><input type="radio" name="cat" value="Bracelet"> Bracelet</label>
+            <label><input type="radio" name="cat" value="Ring"> Ring</label>
+            <label><input type="radio" name="cat" value="Wedding Ring"> Wedding Ring</label>
+            <label><input type="radio" name="cat" value="Anklet"> Anklet</label>
+        </div>
+
+        <div class="selection-container" style="justify-content: space-around;">
             <label><input type="radio" name="wm" value="white" checked> White Logo</label>
             <label><input type="radio" name="wm" value="purple"> Purple Logo</label>
         </div>
@@ -62,132 +90,91 @@
     <div id="preview-container">
         <canvas id="canvas"></canvas>
     </div>
-    <div class="hint">Pinch to zoom • Drag to pan • Scroll to zoom</div>
 
     <script>
         const canvas = document.getElementById('canvas');
         const ctx = canvas.getContext('2d');
         const container = document.getElementById('preview-container');
-        const upload = document.getElementById('upload');
         const photoId = document.getElementById('photoId');
-        const clearBtn = document.getElementById('clearId');
-        const downloadBtn = document.getElementById('download');
-
-        let baseImage = null;
-        let imgX = 0, imgY = 0, imgScale = 1;
-        let isDragging = false;
-        let lastX, lastY, lastDist = 0;
-
+        
         const watermarks = { white: new Image(), purple: new Image() };
         watermarks.white.src = 'white.png';
         watermarks.purple.src = 'purple.png';
+
+        let baseImage = null;
+        let imgX = 0, imgY = 0, imgScale = 1;
+        let isDragging = false, lastX, lastY, lastDist = 0;
+        const activePointers = new Map();
 
         const savedID = localStorage.getItem('lastKN_ID');
         if (savedID) photoId.placeholder = "Last: " + savedID;
 
         function draw() {
-            const size = 1200; // High resolution square
+            const size = 1200;
             canvas.width = size; canvas.height = size;
             ctx.fillStyle = "white";
             ctx.fillRect(0, 0, size, size);
 
-            if (baseImage) {
-                ctx.drawImage(baseImage, imgX, imgY, baseImage.width * imgScale, baseImage.height * imgScale);
-            }
+            if (baseImage) ctx.drawImage(baseImage, imgX, imgY, baseImage.width * imgScale, baseImage.height * imgScale);
 
-            // Draw Fixed UI Elements (Watermark & ID)
             const selectedWM = document.querySelector('input[name="wm"]:checked').value;
-            const wmImg = watermarks[selectedWM];
-            if (wmImg.complete) ctx.drawImage(wmImg, 0, 0, size, size);
+            if (watermarks[selectedWM].complete) ctx.drawImage(watermarks[selectedWM], 0, 0, size, size);
 
-            const rawText = photoId.value.trim();
-            if (rawText) {
-                const fullText = "KN" + rawText;
-                ctx.font = `bold ${size * 0.05}px "MoglanDemo"`;
-                const textWidth = ctx.measureText(fullText).width;
-                const p = size * 0.02, rectW = textWidth + (p * 2), rectH = size * 0.07;
+            const rawID = photoId.value.trim();
+            const category = document.querySelector('input[name="cat"]:checked').value;
+            
+            const margin = size * 0.03;
+            const badgeHeight = size * 0.07;
+            
+            // REDUCED VERTICAL SPACE HERE
+            const spacing = size * 0.004; 
+
+            let categoryOffset = 0;
+            if (category) {
+                ctx.font = `500 ${size * 0.04}px "SFProMedium"`;
+                const catWidth = ctx.measureText(category).width;
+                const p = size * 0.02;
                 ctx.fillStyle = "#9168ad";
                 ctx.beginPath();
-                ctx.roundRect(size * 0.03, size * 0.03, rectW, rectH, size * 0.015);
+                ctx.roundRect(margin, margin, catWidth + (p * 2), badgeHeight, size * 0.02);
                 ctx.fill();
                 ctx.fillStyle = "white";
                 ctx.textBaseline = "middle";
-                ctx.fillText(fullText, (size * 0.03) + p, (size * 0.03) + (rectH / 2.1));
+                ctx.fillText(category, margin + p, margin + (badgeHeight / 2));
+                categoryOffset = badgeHeight + spacing;
+            }
+
+            if (rawID) {
+                const fullText = "KN" + rawID;
+                ctx.font = `500 ${size * 0.04}px "SFProMedium"`;
+                const idWidth = ctx.measureText(fullText).width;
+                const p = size * 0.02;
+                ctx.fillStyle = "#9168ad";
+                ctx.beginPath();
+                ctx.roundRect(margin, margin + categoryOffset, idWidth + (p * 2), badgeHeight, size * 0.02);
+                ctx.fill();
+                ctx.fillStyle = "white";
+                ctx.textBaseline = "middle";
+                ctx.fillText(fullText, margin + p, margin + categoryOffset + (badgeHeight / 2));
             }
         }
 
-        // --- Fluid Interaction Logic ---
-
-        // Wheel Zoom (PC)
-        container.addEventListener('wheel', (e) => {
-            e.preventDefault();
-            const zoomSpeed = 0.001;
-            const delta = -e.deltaY;
-            const factor = Math.pow(1.1, delta / 100);
-            
-            // Zoom towards mouse position
-            const rect = container.getBoundingClientRect();
-            const mouseX = (e.clientX - rect.left) * (canvas.width / rect.width);
-            const mouseY = (e.clientY - rect.top) * (canvas.height / rect.height);
-
-            imgX = mouseX - (mouseX - imgX) * factor;
-            imgY = mouseY - (mouseY - imgY) * factor;
-            imgScale *= factor;
-            draw();
-        }, { passive: false });
-
-        // Touch & Mouse Pan/Pinch
-        container.addEventListener('pointerdown', (e) => {
-            isDragging = true;
-            lastX = e.clientX;
-            lastY = e.clientY;
-            container.setPointerCapture(e.pointerId);
-        });
-
-        const activePointers = new Map();
-
-        container.addEventListener('pointermove', (e) => {
-            activePointers.set(e.pointerId, e);
-            
-            if (activePointers.size === 2) {
-                // Pinch to Zoom
-                const pts = Array.from(activePointers.values());
-                const dist = Math.hypot(pts[0].clientX - pts[1].clientX, pts[0].clientY - pts[1].clientY);
-                
-                if (lastDist > 0) {
-                    const factor = dist / lastDist;
-                    imgScale *= factor;
-                    // Keep center relative
-                    const midX = (pts[0].clientX + pts[1].clientX) / 2;
-                    const midY = (pts[0].clientY + pts[1].clientY) / 2;
-                    const rect = container.getBoundingClientRect();
-                    const canvasMidX = (midX - rect.left) * (canvas.width / rect.width);
-                    const canvasMidY = (midY - rect.top) * (canvas.height / rect.height);
-                    
-                    imgX = canvasMidX - (canvasMidX - imgX) * factor;
-                    imgY = canvasMidY - (canvasMidY - imgY) * factor;
-                }
-                lastDist = dist;
-            } else if (isDragging && activePointers.size === 1) {
-                // Pan
-                const deltaX = (e.clientX - lastX) * (canvas.width / container.clientWidth);
-                const deltaY = (e.clientY - lastY) * (canvas.height / container.clientHeight);
-                imgX += deltaX;
-                imgY += deltaY;
-                lastX = e.clientX;
-                lastY = e.clientY;
-            }
-            draw();
-        });
-
-        container.addEventListener('pointerup', (e) => {
-            activePointers.delete(e.pointerId);
-            if (activePointers.size < 2) lastDist = 0;
-            if (activePointers.size === 0) isDragging = false;
-        });
-
         // --- Standard Logic ---
-        upload.addEventListener('change', (e) => {
+        photoId.addEventListener('input', draw);
+        document.getElementsByName('cat').forEach(r => r.addEventListener('change', draw));
+        document.getElementsByName('wm').forEach(r => r.addEventListener('change', draw));
+        
+        document.getElementById('clearId').addEventListener('click', () => {
+            if (photoId.value) {
+                localStorage.setItem('lastKN_ID', photoId.value);
+                photoId.placeholder = "Last: " + photoId.value;
+                photoId.value = "";
+                document.querySelector('input[name="cat"][value=""]').checked = true;
+                draw();
+            }
+        });
+
+        document.getElementById('upload').addEventListener('change', (e) => {
             const reader = new FileReader();
             reader.onload = (f) => {
                 const img = new Image();
@@ -203,15 +190,39 @@
             reader.readAsDataURL(e.target.files[0]);
         });
 
-        clearBtn.addEventListener('click', () => {
-            if (photoId.value) {
-                localStorage.setItem('lastKN_ID', photoId.value);
-                photoId.placeholder = "Last: " + photoId.value;
-                photoId.value = ""; draw();
-            }
+        container.addEventListener('pointerdown', (e) => {
+            isDragging = true; lastX = e.clientX; lastY = e.clientY;
+            container.setPointerCapture(e.pointerId);
         });
 
-        downloadBtn.addEventListener('click', () => {
+        container.addEventListener('pointermove', (e) => {
+            activePointers.set(e.pointerId, e);
+            if (activePointers.size === 2) {
+                const pts = Array.from(activePointers.values());
+                const dist = Math.hypot(pts[0].clientX - pts[1].clientX, pts[0].clientY - pts[1].clientY);
+                if (lastDist > 0) {
+                    const factor = dist / lastDist;
+                    const midX = (pts[0].clientX + pts[1].clientX) / 2, midY = (pts[0].clientY + pts[1].clientY) / 2;
+                    const rect = container.getBoundingClientRect();
+                    const cX = (midX - rect.left) * (canvas.width / rect.width), cY = (midY - rect.top) * (canvas.height / rect.height);
+                    imgX = cX - (cX - imgX) * factor; imgY = cY - (cY - imgY) * factor; imgScale *= factor;
+                }
+                lastDist = dist;
+            } else if (isDragging && activePointers.size === 1) {
+                imgX += (e.clientX - lastX) * (canvas.width / container.clientWidth);
+                imgY += (e.clientY - lastY) * (canvas.height / container.clientHeight);
+                lastX = e.clientX; lastY = e.clientY;
+            }
+            draw();
+        });
+
+        container.addEventListener('pointerup', (e) => {
+            activePointers.delete(e.pointerId);
+            if (activePointers.size < 2) lastDist = 0;
+            if (activePointers.size === 0) isDragging = false;
+        });
+
+        document.getElementById('download').addEventListener('click', () => {
             if(!baseImage) return;
             const data = canvas.toDataURL('image/png');
             if(/iPhone|iPad|iPod/.test(navigator.userAgent)) {
@@ -226,10 +237,8 @@
             }
         });
 
-        photoId.addEventListener('input', draw);
-        document.getElementsByName('wm').forEach(r => r.addEventListener('change', draw));
         watermarks.white.onload = draw; watermarks.purple.onload = draw;
-        document.fonts.load('10pt "MoglanDemo"').then(draw);
+        document.fonts.load('10pt "SFProMedium"').then(draw);
     </script>
 </body>
 </html>
