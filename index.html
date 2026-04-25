@@ -51,10 +51,16 @@
         }
 
         #preview-container { 
-            width: 100%; max-width: 500px; aspect-ratio: 1 / 1; 
+            width: 100%; max-width: 500px; 
             border: 2px solid #9168ad; background: #fff; position: relative;
             touch-action: none; overflow: hidden; cursor: grab;
+            display: flex; align-items: center; justify-content: center;
         }
+        
+        .ratio-square { aspect-ratio: 1 / 1; }
+        .ratio-landscape { aspect-ratio: 4 / 3; }
+        .ratio-portrait { aspect-ratio: 3 / 4; }
+        
         canvas { width: 100%; height: 100%; display: block; }
     </style>
 </head>
@@ -72,22 +78,28 @@
         </div>
 
         <div class="selection-container">
-            <label><input type="radio" name="cat" value="" checked> None</label>
-            <label><input type="radio" name="cat" value="Earring"> Earring</label>
-            <label><input type="radio" name="cat" value="Necklace"> Necklace</label>
-            <label><input type="radio" name="cat" value="Bracelet"> Bracelet</label>
-            <label><input type="radio" name="cat" value="Ring"> Ring</label>
-            <label><input type="radio" name="cat" value="Wedding Ring"> Wedding Ring</label>
-            <label><input type="radio" name="cat" value="Anklet"> Anklet</label>
+            <label><input type="checkbox" name="cat" value="Earring"> Earring</label>
+            <label><input type="checkbox" name="cat" value="Necklace"> Necklace</label>
+            <label><input type="checkbox" name="cat" value="Bracelet"> Bracelet</label>
+            <label><input type="checkbox" name="cat" value="Ring"> Ring</label>
+            <label><input type="checkbox" name="cat" value="Wedding Ring"> Wedding Ring</label>
+            <label><input type="checkbox" name="cat" value="Anklet"> Anklet</label>
+        </div>
+
+        <div class="selection-container" style="justify-content: space-between;">
+            <label><input type="radio" name="ratio" value="square" checked> Square</label>
+            <label><input type="radio" name="ratio" value="landscape"> 4x3 Landscape</label>
+            <label><input type="radio" name="ratio" value="portrait"> 4x3 Portrait</label>
         </div>
 
         <div class="selection-container" style="justify-content: space-around;">
-            <label><input type="radio" name="wm" value="white" checked> White Logo</label>
-            <label><input type="radio" name="wm" value="purple"> Purple Logo</label>
+            <label><input type="radio" name="wm" value="white" checked> White watermark</label>
+            <label><input type="radio" name="wm" value="purple"> Purple watermark</label>
+            <label><input type="radio" name="wm" value="four-three-wm"> Logo Only</label>
         </div>
     </div>
 
-    <div id="preview-container">
+    <div id="preview-container" class="ratio-square">
         <canvas id="canvas"></canvas>
     </div>
 
@@ -97,9 +109,14 @@
         const container = document.getElementById('preview-container');
         const photoId = document.getElementById('photoId');
         
-        const watermarks = { white: new Image(), purple: new Image() };
+        const watermarks = { 
+            white: new Image(), 
+            purple: new Image(),
+            'four-three-wm': new Image() 
+        };
         watermarks.white.src = 'white.png';
         watermarks.purple.src = 'purple.png';
+        watermarks['four-three-wm'].src = '4x3.png';
 
         let baseImage = null;
         let imgX = 0, imgY = 0, imgScale = 1;
@@ -109,59 +126,110 @@
         const savedID = localStorage.getItem('lastKN_ID');
         if (savedID) photoId.placeholder = "Last: " + savedID;
 
+        function fitImageToCanvas(img, canvasW, canvasH) {
+            const scale = Math.max(canvasW / img.width, canvasH / img.height);
+            imgScale = scale;
+            imgX = (canvasW - img.width * scale) / 2;
+            imgY = (canvasH - img.height * scale) / 2;
+        }
+
         function draw() {
-            const size = 1200;
-            canvas.width = size; canvas.height = size;
+            const ratio = document.querySelector('input[name="ratio"]:checked').value;
+            let canvasW = 1200, canvasH = 1200;
+
+            container.className = "";
+            if (ratio === 'square') {
+                container.classList.add('ratio-square');
+                canvasW = 1200; canvasH = 1200;
+            } else if (ratio === 'landscape') {
+                container.classList.add('ratio-landscape');
+                canvasW = 1200; canvasH = 900;
+            } else if (ratio === 'portrait') {
+                container.classList.add('ratio-portrait');
+                canvasW = 900; canvasH = 1200;
+            }
+
+            canvas.width = canvasW; canvas.height = canvasH;
             ctx.fillStyle = "white";
-            ctx.fillRect(0, 0, size, size);
+            ctx.fillRect(0, 0, canvasW, canvasH);
 
             if (baseImage) ctx.drawImage(baseImage, imgX, imgY, baseImage.width * imgScale, baseImage.height * imgScale);
 
             const selectedWM = document.querySelector('input[name="wm"]:checked').value;
-            if (watermarks[selectedWM].complete) ctx.drawImage(watermarks[selectedWM], 0, 0, size, size);
+            if (watermarks[selectedWM].complete) {
+                const wm = watermarks[selectedWM];
+                if (selectedWM === 'four-three-wm') {
+                    const logoWidthRatio = ratio === 'portrait' ? 0.3 : 0.2;
+                    const logoScale = (canvasW * logoWidthRatio) / wm.width;
+                    const logW = wm.width * logoScale;
+                    const logH = wm.height * logoScale;
+                    const x = (canvasW - logW) / 2;
+                    const y = canvasH - logH - (canvasH * 0.03);
+                    ctx.drawImage(wm, x, y, logW, logH);
+                } else {
+                    ctx.drawImage(wm, 0, 0, canvasW, canvasH);
+                }
+            }
 
             const rawID = photoId.value.trim();
-            const category = document.querySelector('input[name="cat"]:checked').value;
-            
-            const margin = size * 0.03;
-            const badgeHeight = size * 0.07;
-            
-            // REDUCED VERTICAL SPACE HERE
-            const spacing = size * 0.004; 
+            const refSize = Math.min(canvasW, canvasH);
+            const margin = refSize * 0.03;
+            const badgeHeight = refSize * 0.07;
+            const spacing = refSize * 0.004; 
 
-            let categoryOffset = 0;
-            if (category) {
-                ctx.font = `500 ${size * 0.04}px "SFProMedium"`;
+            let currentYOffset = margin;
+            const checkedCategories = Array.from(document.querySelectorAll('input[name="cat"]:checked')).map(cb => cb.value);
+
+            checkedCategories.forEach(category => {
+                ctx.font = `500 ${refSize * 0.04}px "SFProMedium"`;
                 const catWidth = ctx.measureText(category).width;
-                const p = size * 0.02;
+                const p = refSize * 0.02;
                 ctx.fillStyle = "#9168ad";
                 ctx.beginPath();
-                ctx.roundRect(margin, margin, catWidth + (p * 2), badgeHeight, size * 0.02);
+                ctx.roundRect(margin, currentYOffset, catWidth + (p * 2), badgeHeight, refSize * 0.02);
                 ctx.fill();
                 ctx.fillStyle = "white";
                 ctx.textBaseline = "middle";
-                ctx.fillText(category, margin + p, margin + (badgeHeight / 2));
-                categoryOffset = badgeHeight + spacing;
-            }
+                ctx.fillText(category, margin + p, currentYOffset + (badgeHeight / 2));
+                currentYOffset += badgeHeight + spacing;
+            });
 
             if (rawID) {
                 const fullText = "KN" + rawID;
-                ctx.font = `500 ${size * 0.04}px "SFProMedium"`;
+                ctx.font = `500 ${refSize * 0.04}px "SFProMedium"`;
                 const idWidth = ctx.measureText(fullText).width;
-                const p = size * 0.02;
+                const p = refSize * 0.02;
                 ctx.fillStyle = "#9168ad";
                 ctx.beginPath();
-                ctx.roundRect(margin, margin + categoryOffset, idWidth + (p * 2), badgeHeight, size * 0.02);
+                ctx.roundRect(margin, currentYOffset, idWidth + (p * 2), badgeHeight, refSize * 0.02);
                 ctx.fill();
                 ctx.fillStyle = "white";
                 ctx.textBaseline = "middle";
-                ctx.fillText(fullText, margin + p, margin + categoryOffset + (badgeHeight / 2));
+                ctx.fillText(fullText, margin + p, currentYOffset + (badgeHeight / 2));
             }
         }
 
-        // --- Standard Logic ---
         photoId.addEventListener('input', draw);
-        document.getElementsByName('cat').forEach(r => r.addEventListener('change', draw));
+        document.getElementsByName('cat').forEach(cb => cb.addEventListener('change', draw));
+        
+        document.getElementsByName('ratio').forEach(r => r.addEventListener('change', () => {
+            const ratio = r.value;
+            
+            // --- AUTOMATIC WATERMARK SWITCHING ---
+            if (ratio === 'landscape' || ratio === 'portrait') {
+                document.querySelector('input[name="wm"][value="four-three-wm"]').checked = true;
+            } else if (ratio === 'square') {
+                document.querySelector('input[name="wm"][value="white"]').checked = true;
+            }
+
+            if(baseImage) {
+                const cW = ratio === 'portrait' ? 900 : 1200;
+                const cH = ratio === 'landscape' ? 900 : 1200;
+                fitImageToCanvas(baseImage, cW, cH);
+            }
+            draw();
+        }));
+
         document.getElementsByName('wm').forEach(r => r.addEventListener('change', draw));
         
         document.getElementById('clearId').addEventListener('click', () => {
@@ -169,7 +237,7 @@
                 localStorage.setItem('lastKN_ID', photoId.value);
                 photoId.placeholder = "Last: " + photoId.value;
                 photoId.value = "";
-                document.querySelector('input[name="cat"][value=""]').checked = true;
+                document.getElementsByName('cat').forEach(cb => cb.checked = false);
                 draw();
             }
         });
@@ -180,9 +248,10 @@
                 const img = new Image();
                 img.onload = () => { 
                     baseImage = img; 
-                    imgScale = 1200 / Math.max(img.width, img.height);
-                    imgX = (1200 - img.width * imgScale) / 2;
-                    imgY = (1200 - img.height * imgScale) / 2;
+                    const ratio = document.querySelector('input[name="ratio"]:checked').value;
+                    const cW = ratio === 'portrait' ? 900 : 1200;
+                    const cH = ratio === 'landscape' ? 900 : 1200;
+                    fitImageToCanvas(img, cW, cH);
                     draw(); 
                 };
                 img.src = f.target.result;
@@ -197,20 +266,20 @@
 
         container.addEventListener('pointermove', (e) => {
             activePointers.set(e.pointerId, e);
+            const rect = container.getBoundingClientRect();
             if (activePointers.size === 2) {
                 const pts = Array.from(activePointers.values());
                 const dist = Math.hypot(pts[0].clientX - pts[1].clientX, pts[0].clientY - pts[1].clientY);
                 if (lastDist > 0) {
                     const factor = dist / lastDist;
                     const midX = (pts[0].clientX + pts[1].clientX) / 2, midY = (pts[0].clientY + pts[1].clientY) / 2;
-                    const rect = container.getBoundingClientRect();
                     const cX = (midX - rect.left) * (canvas.width / rect.width), cY = (midY - rect.top) * (canvas.height / rect.height);
                     imgX = cX - (cX - imgX) * factor; imgY = cY - (cY - imgY) * factor; imgScale *= factor;
                 }
                 lastDist = dist;
             } else if (isDragging && activePointers.size === 1) {
-                imgX += (e.clientX - lastX) * (canvas.width / container.clientWidth);
-                imgY += (e.clientY - lastY) * (canvas.height / container.clientHeight);
+                imgX += (e.clientX - lastX) * (canvas.width / rect.width);
+                imgY += (e.clientY - lastY) * (canvas.height / rect.height);
                 lastX = e.clientX; lastY = e.clientY;
             }
             draw();
@@ -237,7 +306,9 @@
             }
         });
 
-        watermarks.white.onload = draw; watermarks.purple.onload = draw;
+        watermarks.white.onload = draw; 
+        watermarks.purple.onload = draw;
+        watermarks['four-three-wm'].onload = draw;
         document.fonts.load('10pt "SFProMedium"').then(draw);
     </script>
 </body>
