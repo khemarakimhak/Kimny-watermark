@@ -308,24 +308,76 @@
 
         document.getElementById('download').addEventListener('click', async () => {
             if (isVideoMode) {
-                const stream = canvas.captureStream(30);
-                const recorder = new MediaRecorder(stream, { mimeType: 'video/webm' });
+                // Show a simple loading indicator so you know it's working
+                const btn = document.getElementById('download');
+                const originalText = btn.innerText;
+                btn.innerText = "Processing Video...";
+                btn.style.opacity = "0.5";
+
+                const stream = canvas.captureStream(30); // 30 FPS
+                
+                // Use H.264/MP4 if available (better for iPhone), otherwise fallback to webm
+                // We set bitsPerSecond to 8Mbps to compress the file size
+                const options = { 
+                    mimeType: 'video/mp4; codecs="avc1.42E01E, mp4a.40.2"',
+                    bitsPerSecond: 8000000 
+                };
+                
+                let recorder;
+                try {
+                    recorder = new MediaRecorder(stream, options);
+                } catch (e) {
+                    // Fallback for older browsers
+                    recorder = new MediaRecorder(stream, { bitsPerSecond: 8000000 });
+                }
+
                 const chunks = [];
                 videoElement.currentTime = 0;
                 videoElement.play();
                 recorder.start();
-                videoElement.onended = () => recorder.stop();
-                recorder.onstop = () => {
-                    const blob = new Blob(chunks, { type: 'video/webm' });
-                    const url = URL.createObjectURL(blob);
-                    const a = document.createElement('a');
-                    a.href = url; a.download = `KN_Video.webm`; a.click();
+
+                videoElement.onended = () => {
+                    recorder.stop();
+                    btn.innerText = originalText;
+                    btn.style.opacity = "1";
                 };
-                recorder.ondataavailable = e => chunks.push(e.data);
+
+                recorder.ondataavailable = e => {
+                    if (e.data.size > 0) chunks.push(e.data);
+                };
+
+                recorder.onstop = () => {
+                    const blob = new Blob(chunks, { type: recorder.mimeType });
+                    const url = URL.createObjectURL(blob);
+                    
+                    // On iPhone, a direct link often works better than a forced click
+                    if (/iPhone|iPad|iPod/.test(navigator.userAgent)) {
+                        const overlay = document.createElement('div');
+                        overlay.style.cssText = "position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.9);z-index:2000;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:20px;";
+                        overlay.innerHTML = `
+                            <p style="color:white; font-weight:bold; text-align:center;">Video Ready!</p>
+                            <video src="${url}" controls style="max-width:100%; border:2px solid white;"></video>
+                            <p style="color:white; font-size:12px; margin-top:10px;">Tap the share icon or long press to save.</p>
+                            <button id="close-overlay" class="btn-brand" style="margin-top:20px;">Close</button>
+                        `;
+                        document.body.appendChild(overlay);
+                        document.getElementById('close-overlay').onclick = () => {
+                            overlay.remove();
+                            URL.revokeObjectURL(url); // Free up memory
+                        };
+                    } else {
+                        const a = document.createElement('a');
+                        a.href = url; 
+                        a.download = `KN_Video_${photoId.value || 'Export'}.mp4`; 
+                        a.click();
+                        setTimeout(() => URL.revokeObjectURL(url), 100);
+                    }
+                };
             } else {
+                // Existing Photo Download Logic
                 const data = canvas.toDataURL('image/png');
                 const a = document.createElement('a');
-                a.href = data; a.download = `KN${photoId.value || 'Export'}.png`; a.click();
+                a.href = data; a.download = `KN${photoId.value}.png`; a.click();
             }
         });
 
