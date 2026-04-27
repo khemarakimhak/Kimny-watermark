@@ -121,7 +121,7 @@
         <canvas id="canvas"></canvas>
     </div>
 
-    <video id="hidden-video" loop muted playsinline></video>
+    <video id="hidden-video" muted playsinline></video>
 
     <script>
         const canvas = document.getElementById('canvas');
@@ -308,16 +308,13 @@
 
         document.getElementById('download').addEventListener('click', async () => {
             if (isVideoMode) {
-                // Show a simple loading indicator so you know it's working
+                if (!videoElement.duration) return alert("Video not loaded yet");
+
                 const btn = document.getElementById('download');
                 const originalText = btn.innerText;
-                btn.innerText = "Processing Video...";
-                btn.style.opacity = "0.5";
-
-                const stream = canvas.captureStream(30); // 30 FPS
                 
-                // Use H.264/MP4 if available (better for iPhone), otherwise fallback to webm
-                // We set bitsPerSecond to 8Mbps to compress the file size
+                // 1. Setup Stream and Recorder
+                const stream = canvas.captureStream(30); 
                 const options = { 
                     mimeType: 'video/mp4; codecs="avc1.42E01E, mp4a.40.2"',
                     bitsPerSecond: 8000000 
@@ -327,57 +324,67 @@
                 try {
                     recorder = new MediaRecorder(stream, options);
                 } catch (e) {
-                    // Fallback for older browsers
                     recorder = new MediaRecorder(stream, { bitsPerSecond: 8000000 });
                 }
 
                 const chunks = [];
+                
+                // 2. Prepare Video for Recording
                 videoElement.currentTime = 0;
-                videoElement.play();
-                recorder.start();
-
-                videoElement.onended = () => {
-                    recorder.stop();
-                    btn.innerText = originalText;
-                    btn.style.opacity = "1";
-                };
-
-                recorder.ondataavailable = e => {
-                    if (e.data.size > 0) chunks.push(e.data);
-                };
+                videoElement.pause(); // Ensure it's paused before we start
+                
+                recorder.ondataavailable = e => { if (e.data.size > 0) chunks.push(e.data); };
 
                 recorder.onstop = () => {
                     const blob = new Blob(chunks, { type: recorder.mimeType });
                     const url = URL.createObjectURL(blob);
                     
-                    // On iPhone, a direct link often works better than a forced click
+                    btn.innerText = originalText;
+                    btn.style.opacity = "1";
+
+                    // iPhone Overlay for Saving
                     if (/iPhone|iPad|iPod/.test(navigator.userAgent)) {
                         const overlay = document.createElement('div');
                         overlay.style.cssText = "position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.9);z-index:2000;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:20px;";
                         overlay.innerHTML = `
                             <p style="color:white; font-weight:bold; text-align:center;">Video Ready!</p>
                             <video src="${url}" controls style="max-width:100%; border:2px solid white;"></video>
-                            <p style="color:white; font-size:12px; margin-top:10px;">Tap the share icon or long press to save.</p>
+                            <p style="color:white; font-size:12px; margin-top:10px; text-align:center;">Tap the share icon or long press the video to "Save Video".</p>
                             <button id="close-overlay" class="btn-brand" style="margin-top:20px;">Close</button>
                         `;
                         document.body.appendChild(overlay);
                         document.getElementById('close-overlay').onclick = () => {
                             overlay.remove();
-                            URL.revokeObjectURL(url); // Free up memory
+                            URL.revokeObjectURL(url);
                         };
                     } else {
                         const a = document.createElement('a');
-                        a.href = url; 
-                        a.download = `KN_Video_${photoId.value || 'Export'}.mp4`; 
-                        a.click();
-                        setTimeout(() => URL.revokeObjectURL(url), 100);
+                        a.href = url; a.download = `KN_Video.mp4`; a.click();
                     }
                 };
+
+                // 3. Start Recording
+                recorder.start();
+                videoElement.play();
+
+                // 4. Progress Tracking
+                const updateTimer = setInterval(() => {
+                    const remaining = Math.ceil(videoElement.duration - videoElement.currentTime);
+                    btn.innerText = `Recording... ${remaining}s left`;
+                    btn.style.opacity = "0.5";
+                    
+                    // Safety: If the video actually ended or duration is reached
+                    if (videoElement.ended || videoElement.currentTime >= videoElement.duration) {
+                        clearInterval(updateTimer);
+                        if (recorder.state === "recording") recorder.stop();
+                    }
+                }, 500);
+
             } else {
-                // Existing Photo Download Logic
+                // Photo Download
                 const data = canvas.toDataURL('image/png');
                 const a = document.createElement('a');
-                a.href = data; a.download = `KN${photoId.value}.png`; a.click();
+                a.href = data; a.download = `KN${photoId.value || 'Export'}.png`; a.click();
             }
         });
 
