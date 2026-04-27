@@ -20,15 +20,21 @@
         body { 
             background-color: #ffe7e5; 
             font-family: 'Segoe UI', sans-serif; 
+            
+            /* 1. Ensure the body fills the entire dynamic screen height */
             margin: 0; 
             min-height: 100dvh; 
             display: flex; 
             flex-direction: column; 
             align-items: center; 
             box-sizing: border-box;
+
+            /* 2. Add padding that respects the iPhone Notch and Home bar */
             padding: 15px; 
             padding-top: calc(15px + env(safe-area-inset-top));
             padding-bottom: calc(15px + env(safe-area-inset-bottom));
+            padding-left: calc(15px + env(safe-area-inset-left));
+            padding-right: calc(15px + env(safe-area-inset-right));
         }
         
         .controls { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; width: 100%; max-width: 500px; margin-bottom: 12px; }
@@ -72,23 +78,19 @@
         .ratio-square { aspect-ratio: 1 / 1; }
         .ratio-landscape { aspect-ratio: 4 / 3; }
         .ratio-portrait { aspect-ratio: 3 / 4; }
-        .ratio-video { aspect-ratio: 9 / 16; }
         
         canvas { width: 100%; height: 100%; display: block; }
-        
-        #hidden-video { display: none; }
     </style>
 </head>
 <body>
 
     <div class="controls">
-        <label for="upload" class="upload-label">Insert Media</label>
-        <input type="file" id="upload" hidden accept="image/*,video/*">
-        
-        <button id="download" class="btn-brand">Download Result</button>
+        <label for="upload" class="upload-label">insert photo here</label>
+        <input type="file" id="upload" hidden accept="image/*">
+        <button id="download" class="btn-brand">Download photo</button>
 
         <div class="id-input-group">
-            <div class="id-tag">ID</div>
+            <div class="id-tag">Photo ID</div>
             <input type="text" id="photoId" placeholder="Type number...">
             <button id="clearId" class="clear-btn">✕</button>
         </div>
@@ -103,17 +105,15 @@
         </div>
 
         <div class="selection-container" style="justify-content: space-between;">
-            <label><input type="radio" name="ratio" value="square" checked> Sq</label>
-            <label><input type="radio" name="ratio" value="landscape"> 4:3 L</label>
-            <label><input type="radio" name="ratio" value="portrait"> 4:3 P</label>
-            <label><input type="radio" name="ratio" value="video"> 9:16 Video</label>
+            <label><input type="radio" name="ratio" value="square" checked> Square</label>
+            <label><input type="radio" name="ratio" value="landscape"> 4x3 Landscape</label>
+            <label><input type="radio" name="ratio" value="portrait"> 4x3 Portrait</label>
         </div>
 
         <div class="selection-container" style="justify-content: space-around;">
-            <label><input type="radio" name="wm" value="white" checked> White</label>
-            <label><input type="radio" name="wm" value="purple"> Purple</label>
+            <label><input type="radio" name="wm" value="white" checked> White watermark</label>
+            <label><input type="radio" name="wm" value="purple"> Purple watermark</label>
             <label><input type="radio" name="wm" value="four-three-wm"> Logo Only</label>
-            <label><input type="radio" name="wm" value="video-wm"> Video Logo</label>
         </div>
     </div>
 
@@ -121,37 +121,34 @@
         <canvas id="canvas"></canvas>
     </div>
 
-    <video id="hidden-video" muted playsinline></video>
-
     <script>
         const canvas = document.getElementById('canvas');
         const ctx = canvas.getContext('2d');
         const container = document.getElementById('preview-container');
         const photoId = document.getElementById('photoId');
-        const videoElement = document.getElementById('hidden-video');
         
         const watermarks = { 
             white: new Image(), 
             purple: new Image(),
-            'four-three-wm': new Image(),
-            'video-wm': new Image() 
+            'four-three-wm': new Image() 
         };
         watermarks.white.src = 'white.png';
         watermarks.purple.src = 'purple.png';
         watermarks['four-three-wm'].src = '4x3.png';
-        watermarks['video-wm'].src = 'Watermark for video.png';
 
         let baseImage = null;
-        let isVideoMode = false;
         let imgX = 0, imgY = 0, imgScale = 1;
         let isDragging = false, lastX, lastY, lastDist = 0;
         const activePointers = new Map();
 
-        function fitMediaToCanvas(width, height, canvasW, canvasH) {
-            const scale = Math.max(canvasW / width, canvasH / height);
+        const savedID = localStorage.getItem('lastKN_ID');
+        if (savedID) photoId.placeholder = "Last: " + savedID;
+
+        function fitImageToCanvas(img, canvasW, canvasH) {
+            const scale = Math.max(canvasW / img.width, canvasH / img.height);
             imgScale = scale;
-            imgX = (canvasW - width * scale) / 2;
-            imgY = (canvasH - height * scale) / 2;
+            imgX = (canvasW - img.width * scale) / 2;
+            imgY = (canvasH - img.height * scale) / 2;
         }
 
         function draw() {
@@ -168,41 +165,27 @@
             } else if (ratio === 'portrait') {
                 container.classList.add('ratio-portrait');
                 canvasW = 900; canvasH = 1200;
-            } else if (ratio === 'video') {
-                container.classList.add('ratio-video');
-                canvasW = 1080; canvasH = 1920;
             }
 
-            if (canvas.width !== canvasW || canvas.height !== canvasH) {
-                canvas.width = canvasW; canvas.height = canvasH;
-            }
-
+            canvas.width = canvasW; canvas.height = canvasH;
             ctx.fillStyle = "white";
             ctx.fillRect(0, 0, canvasW, canvasH);
 
-            if (isVideoMode) {
-                ctx.drawImage(videoElement, imgX, imgY, videoElement.videoWidth * imgScale, videoElement.videoHeight * imgScale);
-            } else if (baseImage) {
-                ctx.drawImage(baseImage, imgX, imgY, baseImage.width * imgScale, baseImage.height * imgScale);
-            }
+            if (baseImage) ctx.drawImage(baseImage, imgX, imgY, baseImage.width * imgScale, baseImage.height * imgScale);
 
             const selectedWM = document.querySelector('input[name="wm"]:checked').value;
             if (watermarks[selectedWM].complete) {
                 const wm = watermarks[selectedWM];
-                
-                // Drawing logic for different watermarks
-                if (selectedWM === 'video-wm' || selectedWM === 'white' || selectedWM === 'purple') {
-                    // Full-sized overlays
-                    ctx.drawImage(wm, 0, 0, canvasW, canvasH);
-                } else if (selectedWM === 'four-three-wm') {
-                    // Centered dynamic Logo Only
-                    const logoWidthRatio = (ratio === 'portrait' || ratio === 'video') ? 0.35 : 0.25;
+                if (selectedWM === 'four-three-wm') {
+                    const logoWidthRatio = ratio === 'portrait' ? 0.3 : 0.2;
                     const logoScale = (canvasW * logoWidthRatio) / wm.width;
                     const logW = wm.width * logoScale;
                     const logH = wm.height * logoScale;
                     const x = (canvasW - logW) / 2;
                     const y = canvasH - logH - (canvasH * 0.03);
                     ctx.drawImage(wm, x, y, logW, logH);
+                } else {
+                    ctx.drawImage(wm, 0, 0, canvasW, canvasH);
                 }
             }
 
@@ -213,9 +196,11 @@
             const spacing = refSize * 0.004; 
 
             let currentYOffset = margin;
-            document.querySelectorAll('input[name="cat"]:checked').forEach(cb => {
+            const checkedCategories = Array.from(document.querySelectorAll('input[name="cat"]:checked')).map(cb => cb.value);
+
+            checkedCategories.forEach(category => {
                 ctx.font = `500 ${refSize * 0.04}px "SFProMedium"`;
-                const catWidth = ctx.measureText(cb.value).width;
+                const catWidth = ctx.measureText(category).width;
                 const p = refSize * 0.02;
                 ctx.fillStyle = "#9168ad";
                 ctx.beginPath();
@@ -223,7 +208,7 @@
                 ctx.fill();
                 ctx.fillStyle = "white";
                 ctx.textBaseline = "middle";
-                ctx.fillText(cb.value, margin + p, currentYOffset + (badgeHeight / 2));
+                ctx.fillText(category, margin + p, currentYOffset + (badgeHeight / 2));
                 currentYOffset += badgeHeight + spacing;
             });
 
@@ -240,181 +225,109 @@
                 ctx.textBaseline = "middle";
                 ctx.fillText(fullText, margin + p, currentYOffset + (badgeHeight / 2));
             }
-
-            if (isVideoMode && !videoElement.paused) {
-                requestAnimationFrame(draw);
-            }
         }
 
-        // Logic for ratio switching
+        photoId.addEventListener('input', draw);
+        document.getElementsByName('cat').forEach(cb => cb.addEventListener('change', draw));
+        
         document.getElementsByName('ratio').forEach(r => r.addEventListener('change', () => {
             const ratio = r.value;
             
-            if (ratio === 'video') {
-                document.querySelector('input[name="wm"][value="video-wm"]').checked = true;
-            } else if (ratio === 'landscape' || ratio === 'portrait') {
+            // --- AUTOMATIC WATERMARK SWITCHING ---
+            if (ratio === 'landscape' || ratio === 'portrait') {
                 document.querySelector('input[name="wm"][value="four-three-wm"]').checked = true;
-            } else {
+            } else if (ratio === 'square') {
                 document.querySelector('input[name="wm"][value="white"]').checked = true;
             }
 
-            if (isVideoMode) {
-                const cW = ratio === 'video' ? 1080 : (ratio === 'portrait' ? 900 : 1200);
-                const cH = ratio === 'video' ? 1920 : (ratio === 'landscape' ? 900 : 1200);
-                fitMediaToCanvas(videoElement.videoWidth, videoElement.videoHeight, cW, cH);
-            } else if (baseImage) {
-                const cW = ratio === 'video' ? 1080 : (ratio === 'portrait' ? 900 : 1200);
-                const cH = ratio === 'video' ? 1920 : (ratio === 'landscape' ? 900 : 1200);
-                fitMediaToCanvas(baseImage.width, baseImage.height, cW, cH);
+            if(baseImage) {
+                const cW = ratio === 'portrait' ? 900 : 1200;
+                const cH = ratio === 'landscape' ? 900 : 1200;
+                fitImageToCanvas(baseImage, cW, cH);
             }
             draw();
         }));
 
-        // The rest of your event listeners and MediaRecorder logic remains the same...
-        document.getElementById('upload').addEventListener('change', (e) => {
-            const file = e.target.files[0];
-            if (!file) return;
-
-            if (file.type.startsWith('video/')) {
-                isVideoMode = true;
-                baseImage = null;
-                videoElement.src = URL.createObjectURL(file);
-                videoElement.onloadedmetadata = () => {
-                    document.querySelector('input[name="ratio"][value="video"]').checked = true;
-                    fitMediaToCanvas(videoElement.videoWidth, videoElement.videoHeight, 1080, 1920);
-                    // Force the Watermark selection based on the radio check above
-                    document.querySelector('input[name="wm"][value="video-wm"]').checked = true;
-                    videoElement.play();
-                    draw();
-                };
-            } else {
-                isVideoMode = false;
-                const reader = new FileReader();
-                reader.onload = (f) => {
-                    const img = new Image();
-                    img.onload = () => { 
-                        baseImage = img; 
-                        const ratio = document.querySelector('input[name="ratio"]:checked').value;
-                        const cW = ratio === 'portrait' ? 900 : (ratio === 'video' ? 1080 : 1200);
-                        const cH = ratio === 'landscape' ? 900 : (ratio === 'video' ? 1920 : 1200);
-                        fitMediaToCanvas(img.width, img.height, cW, cH);
-                        draw(); 
-                    };
-                    img.src = f.target.result;
-                };
-                reader.readAsDataURL(file);
-            }
-        });
-
-        document.getElementById('download').addEventListener('click', async () => {
-            if (isVideoMode) {
-                if (!videoElement.duration) return alert("Video not loaded yet");
-
-                const btn = document.getElementById('download');
-                const originalText = btn.innerText;
-                
-                // 1. Setup Stream and Recorder
-                const stream = canvas.captureStream(30); 
-                const options = { 
-                    mimeType: 'video/mp4; codecs="avc1.42E01E, mp4a.40.2"',
-                    bitsPerSecond: 8000000 
-                };
-                
-                let recorder;
-                try {
-                    recorder = new MediaRecorder(stream, options);
-                } catch (e) {
-                    recorder = new MediaRecorder(stream, { bitsPerSecond: 8000000 });
-                }
-
-                const chunks = [];
-                
-                // 2. Prepare Video for Recording
-                videoElement.currentTime = 0;
-                videoElement.pause(); // Ensure it's paused before we start
-                
-                recorder.ondataavailable = e => { if (e.data.size > 0) chunks.push(e.data); };
-
-                recorder.onstop = () => {
-                    const blob = new Blob(chunks, { type: recorder.mimeType });
-                    const url = URL.createObjectURL(blob);
-                    
-                    btn.innerText = originalText;
-                    btn.style.opacity = "1";
-
-                    // iPhone Overlay for Saving
-                    if (/iPhone|iPad|iPod/.test(navigator.userAgent)) {
-                        const overlay = document.createElement('div');
-                        overlay.style.cssText = "position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.9);z-index:2000;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:20px;";
-                        overlay.innerHTML = `
-                            <p style="color:white; font-weight:bold; text-align:center;">Video Ready!</p>
-                            <video src="${url}" controls style="max-width:100%; border:2px solid white;"></video>
-                            <p style="color:white; font-size:12px; margin-top:10px; text-align:center;">Tap the share icon or long press the video to "Save Video".</p>
-                            <button id="close-overlay" class="btn-brand" style="margin-top:20px;">Close</button>
-                        `;
-                        document.body.appendChild(overlay);
-                        document.getElementById('close-overlay').onclick = () => {
-                            overlay.remove();
-                            URL.revokeObjectURL(url);
-                        };
-                    } else {
-                        const a = document.createElement('a');
-                        a.href = url; a.download = `KN_Video.mp4`; a.click();
-                    }
-                };
-
-                // 3. Start Recording
-                recorder.start();
-                videoElement.play();
-
-                // 4. Progress Tracking
-                const updateTimer = setInterval(() => {
-                    const remaining = Math.ceil(videoElement.duration - videoElement.currentTime);
-                    btn.innerText = `Recording... ${remaining}s left`;
-                    btn.style.opacity = "0.5";
-                    
-                    // Safety: If the video actually ended or duration is reached
-                    if (videoElement.ended || videoElement.currentTime >= videoElement.duration) {
-                        clearInterval(updateTimer);
-                        if (recorder.state === "recording") recorder.stop();
-                    }
-                }, 500);
-
-            } else {
-                // Photo Download
-                const data = canvas.toDataURL('image/png');
-                const a = document.createElement('a');
-                a.href = data; a.download = `KN${photoId.value || 'Export'}.png`; a.click();
-            }
-        });
-
-        photoId.addEventListener('input', () => { if(!isVideoMode) draw(); });
-        document.getElementsByName('cat').forEach(cb => cb.addEventListener('change', () => { if(!isVideoMode) draw(); }));
         document.getElementsByName('wm').forEach(r => r.addEventListener('change', draw));
+        
+        document.getElementById('clearId').addEventListener('click', () => {
+            if (photoId.value) {
+                localStorage.setItem('lastKN_ID', photoId.value);
+                photoId.placeholder = "Last: " + photoId.value;
+                photoId.value = "";
+                document.getElementsByName('cat').forEach(cb => cb.checked = false);
+                draw();
+            }
+        });
+
+        document.getElementById('upload').addEventListener('change', (e) => {
+            const reader = new FileReader();
+            reader.onload = (f) => {
+                const img = new Image();
+                img.onload = () => { 
+                    baseImage = img; 
+                    const ratio = document.querySelector('input[name="ratio"]:checked').value;
+                    const cW = ratio === 'portrait' ? 900 : 1200;
+                    const cH = ratio === 'landscape' ? 900 : 1200;
+                    fitImageToCanvas(img, cW, cH);
+                    draw(); 
+                };
+                img.src = f.target.result;
+            };
+            reader.readAsDataURL(e.target.files[0]);
+        });
 
         container.addEventListener('pointerdown', (e) => {
             isDragging = true; lastX = e.clientX; lastY = e.clientY;
             container.setPointerCapture(e.pointerId);
         });
+
         container.addEventListener('pointermove', (e) => {
             activePointers.set(e.pointerId, e);
             const rect = container.getBoundingClientRect();
-            if (activePointers.size === 1 && isDragging) {
+            if (activePointers.size === 2) {
+                const pts = Array.from(activePointers.values());
+                const dist = Math.hypot(pts[0].clientX - pts[1].clientX, pts[0].clientY - pts[1].clientY);
+                if (lastDist > 0) {
+                    const factor = dist / lastDist;
+                    const midX = (pts[0].clientX + pts[1].clientX) / 2, midY = (pts[0].clientY + pts[1].clientY) / 2;
+                    const cX = (midX - rect.left) * (canvas.width / rect.width), cY = (midY - rect.top) * (canvas.height / rect.height);
+                    imgX = cX - (cX - imgX) * factor; imgY = cY - (cY - imgY) * factor; imgScale *= factor;
+                }
+                lastDist = dist;
+            } else if (isDragging && activePointers.size === 1) {
                 imgX += (e.clientX - lastX) * (canvas.width / rect.width);
                 imgY += (e.clientY - lastY) * (canvas.height / rect.height);
                 lastX = e.clientX; lastY = e.clientY;
             }
-            if(!isVideoMode) draw();
+            draw();
         });
+
         container.addEventListener('pointerup', (e) => {
             activePointers.delete(e.pointerId);
+            if (activePointers.size < 2) lastDist = 0;
             if (activePointers.size === 0) isDragging = false;
         });
 
-        watermarks.white.onload = draw;
+        document.getElementById('download').addEventListener('click', () => {
+            if(!baseImage) return;
+            const data = canvas.toDataURL('image/png');
+            if(/iPhone|iPad|iPod/.test(navigator.userAgent)) {
+                const overlay = document.createElement('div');
+                overlay.style.cssText = "position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.9);z-index:2000;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:20px;";
+                overlay.innerHTML = `<p style="color:white; font-weight:bold;">Long press to Save to Photos</p><img src="${data}" style="max-width:100%; border:2px solid white;"><button onclick="this.parentElement.remove()" class="btn-brand" style="margin-top:20px;">Close</button>`;
+                document.body.appendChild(overlay);
+            } else {
+                const link = document.createElement('a');
+                link.download = `KN${photoId.value || 'Export'}.png`;
+                link.href = data; link.click();
+            }
+        });
+
+        watermarks.white.onload = draw; 
         watermarks.purple.onload = draw;
         watermarks['four-three-wm'].onload = draw;
-        watermarks['video-wm'].onload = draw;
+        document.fonts.load('10pt "SFProMedium"').then(draw);
     </script>
 </body>
 </html>
